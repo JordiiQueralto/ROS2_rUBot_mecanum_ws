@@ -1,6 +1,7 @@
 import rclpy
 from rclpy.node import Node
 from sensor_msgs.msg import LaserScan
+from geometry_msgs.msg import Twist
 import math
 
 
@@ -15,8 +16,26 @@ class LidarTest(Node):
             self.listener_callback,
             10
         )
+
+        # Publisher de velocidad
+        self.cmd_pub = self.create_publisher(Twist, '/cmd_vel', 10)
+
         self.scan_msg_shown = False
         self.last_print_time = self.get_clock().now().seconds_nanoseconds()[0]
+
+        # Declaración de parámetros
+        self.declare_parameter('vx', 0.0)          # velocidad lineal x
+        self.declare_parameter('vy', 0.0)
+        self.declare_parameter('w', 0.0)
+        self.declare_parameter('td', 5.0)
+        self.declare_parameter('stop_distance', 0.30)
+
+        # Lectura de parámetros
+        self.vx = self.get_parameter('vx').value
+        self.vy = self.get_parameter('vy').value
+        self.w = self.get_parameter('w').value
+        self.td = self.get_parameter('td').value
+        self.stop_distance = self.get_parameter('stop_distance').value
 
     def listener_callback(self, scan):
         current_time = self.get_clock().now().seconds_nanoseconds()[0]
@@ -64,6 +83,22 @@ class LidarTest(Node):
         self.get_logger().info(f"Minimum distance: {closest_distance:.2f} m at angle {angle_closest_distance:.2f}°")
 
         self.last_print_time = current_time
+
+        # --- CONTROL DEL ROBOT ---
+        twist = Twist()
+
+        if closest_distance > self.stop_distance:
+            # Muy lejos → avanzar
+            twist.linear.x = self.vx
+            twist.linear.y = self.vy
+            twist.angular.z = 0.0
+        else:
+            # Cerca → parar
+            twist.linear.x = 0.0
+            twist.linear.y = 0.0
+            twist.angular.z = 0.0
+
+        self.cmd_pub.publish(twist)
 
 def main(args=None):
     rclpy.init(args=args)
