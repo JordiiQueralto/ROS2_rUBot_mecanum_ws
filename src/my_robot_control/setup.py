@@ -34,9 +34,9 @@ setup(
             'my_robot_lidar_test_V1_exec = my_robot_control.my_robot_lidar_test_V1:main',
             'my_robot_control_lidar_exec = my_robot_control.my_robot_lidar_test_V2:main',
             'my_robot_selfcontrol_holonomic_exec = my_robot_control.my_robot_selfcontrol_holonomic:main',
-            'my_robot_selfcontrol_holonomic_exec_V1 = my_robot_control.my_robot_selfcontrol_holonomic_V1:main',
-            'my_robot_selfcontrol_holonomic_exec_V2 = my_robot_control.my_robot_selfcontrol_holonomic_V2:main',
-            'my_robot_selfcontrol_holonomic_exec_V3 = my_robot_control.my_robot_selfcontrol_holonomic_V3:main',
+            'my_robot_selfcontrol_holonomic_V1_exec = my_robot_control.my_robot_selfcontrol_holonomic_V1:main',
+            'my_robot_selfcontrol_holonomic_V2_exec = my_robot_control.my_robot_selfcontrol_holonomic_V2:main',
+            'my_robot_selfcontrol_holonomic_V3_exec= my_robot_control.my_robot_selfcontrol_holonomic_V3:main',
         ],
     },
 )

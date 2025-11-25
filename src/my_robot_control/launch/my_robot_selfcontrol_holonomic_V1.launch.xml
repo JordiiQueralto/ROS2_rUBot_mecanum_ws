@@ -9,7 +9,7 @@
     <arg name="time_to_stop" default="10.0"/>
 
     <node
-        pkg="my_robot_control" exec="my_robot_selfcontrol_holonomic_exec_V1" name="robot_selfcontrol_node" output="screen">
+        pkg="my_robot_control" exec="my_robot_selfcontrol_holonomic_V1_exec" name="robot_selfcontrol_node" output="screen">
             <param name="distance_limit" value="$(var distance_limit)"/>
             <param name="speed_factor" value="$(var speed_factor)"/>
             <param name="forward_speed" value="$(var forward_speed)"/>

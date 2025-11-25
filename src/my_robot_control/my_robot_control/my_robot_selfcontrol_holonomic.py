@@ -123,12 +123,12 @@ class RobotSelfControl(Node):
                 # Move right
                 self._msg.linear.x = 0.0
                 self._msg.linear.y = -self._forwardSpeed * self._speedFactor
-                self._msg.angular.z = self._forwardSpeed * 0.2 * self._speedFactor
+                self._msg.angular.z = self._forwardSpeed * 1.5 * self._speedFactor
             elif zone == "RIGHT":
                 # Move left
                 self._msg.linear.x = 0.0
                 self._msg.linear.y = self._forwardSpeed * self._speedFactor
-                self._msg.angular.z = self._forwardSpeed * 0.2 * self._speedFactor
+                self._msg.angular.z = self._forwardSpeed * 1.5 * self._speedFactor
             elif zone == "BACK_LEFT":
                 # Turn left
                 self._msg.linear.x = 0.0
