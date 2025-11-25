@@ -84,7 +84,7 @@ class RobotSelfControl(Node):
                 continue
             if distance < scan.range_min or distance > scan.range_max:
                 continue
-            if -150 < angle_robot_deg < 150:
+            if -180 < angle_robot_deg < 180:
                 custom_range.append((distance, angle_robot_deg))
             else:
                 continue
