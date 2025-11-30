@@ -95,126 +95,110 @@ class WallFollower(Node):
 
     #--------------------------------------------------------------------
     def laser_callback(self, scan):
-        """Compute control action from LIDAR and update self.cmd."""
         if self._shutting_down:
             return
 
-        min_distance = float('inf')
-        angle_closest_distance = 0.0 
+        angle_min = math.degrees(scan.angle_min)
+        angle_inc = math.degrees(scan.angle_increment)
 
-        for i, distance in enumerate(scan.ranges):
-            if not math.isfinite(distance) or distance < scan.range_min or distance > scan.range_max:
+        FRONT = []
+        FR_RIGHT = []
+        RIGHT = []
+        BR = []
+        BACK = []
+
+        # CLASSIFICACIÓ DELS SECTORS
+        for i, d in enumerate(scan.ranges):
+            if not math.isfinite(d):
                 continue
 
-            if distance < min_distance:
-                min_distance = distance 
-                angle_closest_distance = math.degrees(scan.angle_min + i * scan.angle_increment)
+            if d < scan.range_min or d > scan.range_max:
+                continue
 
-        #Normalitza l'angle entre -180 i 180
-        angle_closest_distance = (angle_closest_distance + 180) % 360 - 180
-        
+            ang = angle_min + i * angle_inc
+
+            if -30 <= ang <= 30:
+                FRONT.append(d)
+            elif -80 <= ang < -30:
+                FR_RIGHT.append(d)
+            elif -140 <= ang < -80:
+                RIGHT.append(d)
+            elif -170 <= ang < -140:
+                BR.append(d)
+            elif 150 <= ang <= 180 or -180 <= ang <= -170:
+                BACK.append(d)
+
+        # Distàncies mínimes
+        min_f = min(FRONT) if FRONT else float('inf')
+        min_fr = min(FR_RIGHT) if FR_RIGHT else float('inf')
+        min_r = min(RIGHT) if RIGHT else float('inf')
+        min_br = min(BR) if BR else float('inf')
+        min_back = min(BACK) if BACK else float('inf')
+
         twist = Twist()
         action = ""
 
-        #Determina on està la paret més propera
-        if -45 <= angle_closest_distance <= 45:
-            zone = "FRONT"
-        elif 45 < angle_closest_distance <= 135:
-            zone = "LEFT"
-        elif -135 <= angle_closest_distance < -45:
-            zone = "RIGHT"
-        elif (-180 <= angle_closest_distance < -135) or (135 < angle_closest_distance <= 180):
-            zone = "BACK"
+
+        # =================================================
+        #                 REGLES HOLONÒMIQUES
+        # =================================================
+
+        # 1. FRONT → moure cap a l'esquerra
+        if min_f < self.base_distance:
+            twist.linear.x = 0.0
+            twist.linear.y = self.v_lin         # esquerra
+            twist.angular.z = 0.0
+            action = f"FRONT {min_f:.2f} m → move LEFT (vy>0)"
+
+        # 2. FRONT-RIGHT → cap al front-esquerra
+        elif min_fr < self.base_distance:
+            twist.linear.x = self.v_lin * 0.6   # endavant
+            twist.linear.y = self.v_lin * 0.6   # esquerra
+            twist.angular.z = 0.0
+            action = f"FRONT-RIGHT {min_fr:.2f} m → move FRONT-LEFT"
+
+        # 3. RIGHT → avança mantenint distància
+        elif math.isfinite(min_r):
+            # control de la distància al mur
+            error = min_r - self.base_distance
+
+            twist.linear.x = self.v_lin         # endavant
+            twist.linear.y = -error * 0.5        # ajust lateral proporcional
+            twist.angular.z = 0.0
+
+            action = (
+                f"RIGHT {min_r:.2f} m → FORWARD + adjust "
+                f"vy={twist.linear.y:.2f}"
+            )
+
+        # 4. BACK-RIGHT → cap al front-dreta
+        elif math.isfinite(min_br):
+            twist.linear.x = self.v_lin * 0.6    # endavant
+            twist.linear.y = -self.v_lin * 0.6   # dreta
+            twist.angular.z = 0.0
+            action = f"BACK-RIGHT {min_br:.2f} m → move FRONT-RIGHT"
+
+        # 5. BACK → cap a la dreta
+        elif math.isfinite(min_back):
+            twist.linear.x = 0.0
+            twist.linear.y = -self.v_lin         # dreta
+            twist.angular.z = 0.0
+            action = f"BACK {min_back:.2f} m → move RIGHT"
+
         else:
-            zone = "UNKNOWN"
+            twist = Twist()
+            action = "No wall detected → STOP"
 
-         #Lògica de seguiment de qualsevol paret 
-        if min_distance == float('inf'):
-            # No detecta cap paret - busca girant una mica
-            twist.linear.x = self.v_lin * 0.4
-            twist.linear.y = 0.0
-            twist.angular.z = self.v_ang * 0.3  # Gira una mica per buscar
-            action = "No walls → SEARCH"
 
-        elif zone == "FRONT" and min_distance < self.base_distance:
-            # Paret frontal - mou's lateralment segons la paret més propera
-            if angle_closest_distance >= 0:
-                # Paret més a l'esquerra - mou's dreta
-                twist.linear.x = 0.0
-                twist.linear.y = -self.v_lin
-                action = f"FRONT wall {min_distance:.2f}m → MOVE RIGHT"   
-
-            else:
-                # Paret més a la dreta - mou's esquerra
-                twist.linear.x = 0.0
-                twist.linear.y = self.v_lin
-                action = f"FRONT wall {min_distance:.2f}m → MOVE LEFT"
-            
-            
-        elif zone == "RIGHT" and min_distance < self.base_distance * 1.5:
-            # Paret dreta - segueix-la mantenint distància
-
-            error = min_distance - self.base_distance
-            if abs(error) <= self.tol:
-                twist.linear.x = self.v_lin
-                twist.linear.y = 0.0
-                action = f"RIGHT wall OK {min_distance:.2f}m → FORWARD"
-        
-            elif error < 0:  # Massa aprop
-                twist.linear.x = self.v_lin * 0.6
-                twist.linear.y = self.v_lin * 0.4  # Allunya't cap a l'esquerra
-                action = f"RIGHT wall CLOSE {min_distance:.2f}m → LEFT-FORWARD"
-        
-            else:  # Massa lluny
-                twist.linear.x = self.v_lin * 0.6
-                twist.linear.y = -self.v_lin * 0.4  # Apropa't cap a la dreta
-                action = f"RIGHT wall FAR {min_distance:.2f}m → RIGHT-FORWARD"     
-
-        elif zone == "LEFT" and min_distance < self.base_distance * 1.5:
-            # Paret esquerra - segueix-la mantenint distància
-            error = min_distance - self.base_distance
-
-            if abs(error) <= self.tol:
-                twist.linear.x = self.v_lin
-                twist.linear.y = 0.0
-                action = f"LEFT wall OK {min_distance:.2f}m → FORWARD"
-        
-            elif error < 0:  # Massa aprop
-                twist.linear.x = self.v_lin * 0.6
-                twist.linear.y = -self.v_lin * 0.4  # Allunya't cap a la dreta
-                action = f"LEFT wall CLOSE {min_distance:.2f}m → RIGHT-FORWARD"
-        
-            else:  # Massa lluny
-                twist.linear.x = self.v_lin * 0.6
-                twist.linear.y = self.v_lin * 0.4  # Apropa't cap a l'esquerra
-                action = f"LEFT wall FAR {min_distance:.2f}m → LEFT-FORWARD"
-       
-        
-        elif zone == "BACK" and min_distance < self.base_distance:
-            # Paret posterior - segueix endavant (és una paret que estàs deixant enrere)
-            twist.linear.x = self.v_lin
-            twist.linear.y = 0.0
-            action = f"BACK wall {min_distance:.2f}m → FORWARD"
-    
-        else:
-            # Situació normal - segueix endavant
-            twist.linear.x = self.v_lin
-            twist.linear.y = 0.0
-            action = f"Following {zone} wall {min_distance:.2f}m → FORWARD"
-
-        twist.angular.z = 0.0  # Manté orientació
-
-        
-        # Update last commanded twist
+        # Guarda i publica
         self.cmd = twist
 
-        #Logging
         if action != self._last_action_logged:
-            self.get_logger().info(f"{action} [Angle: {angle_closest_distance:.1f}°]")
+            self.get_logger().info(action)
             self._last_action_logged = action
 
         self._state_action = action
-            
+   
 
     #--------------------------------------------------------------------
     def log_info(self):
