@@ -11,7 +11,7 @@ class WallFollower(Node):
         super().__init__('wall_follower_node')
 
         # Parameters
-        self.declare_parameter('distance_limit', 0.3)    # desired distance to right wall
+        self.declare_parameter('distance_limit', 0.5)    # desired distance to right wall
         self.declare_parameter('forward_speed', 0.20)    # linear speed
         self.declare_parameter('turn_speed', 0.40)       # angular speed
         self.declare_parameter('time_to_stop', 30.0)     # auto-stop
@@ -95,110 +95,126 @@ class WallFollower(Node):
 
     #--------------------------------------------------------------------
     def laser_callback(self, scan):
+        """Compute control action from LIDAR and update self.cmd."""
         if self._shutting_down:
             return
 
         angle_min = math.degrees(scan.angle_min)
         angle_inc = math.degrees(scan.angle_increment)
 
-        FRONT = []
-        FR_RIGHT = []
-        RIGHT = []
-        BR = []
-        BACK = []
+        FRONT       = []
+        FR_RIGHT    = []
+        RIGHT       = []
+        BACK_RIGHT  = []
 
-        # CLASSIFICACIÓ DELS SECTORS
         for i, d in enumerate(scan.ranges):
             if not math.isfinite(d):
                 continue
-
             if d < scan.range_min or d > scan.range_max:
                 continue
 
             ang = angle_min + i * angle_inc
 
-            if -30 <= ang <= 30:
+            if -20 <= ang <= 20:
                 FRONT.append(d)
-            elif -80 <= ang < -30:
+            elif -70 <= ang < -20:
                 FR_RIGHT.append(d)
-            elif -140 <= ang < -80:
+            elif -110 <= ang < -70:
                 RIGHT.append(d)
-            elif -170 <= ang < -140:
-                BR.append(d)
-            elif 150 <= ang <= 180 or -180 <= ang <= -170:
-                BACK.append(d)
+            elif -160 <= ang < -110:
+                BACK_RIGHT.append(d)
 
-        # Distàncies mínimes
-        min_f = min(FRONT) if FRONT else float('inf')
-        min_fr = min(FR_RIGHT) if FR_RIGHT else float('inf')
-        min_r = min(RIGHT) if RIGHT else float('inf')
-        min_br = min(BR) if BR else float('inf')
-        min_back = min(BACK) if BACK else float('inf')
+        # Minimal distances
+        min_front      = min(FRONT)      if FRONT      else float('inf')
+        min_fr_right   = min(FR_RIGHT)   if FR_RIGHT   else float('inf')
+        min_right      = min(RIGHT)      if RIGHT      else float('inf')
+        min_back_right = min(BACK_RIGHT) if BACK_RIGHT else float('inf')
 
         twist = Twist()
         action = ""
 
-
-        # =================================================
-        #                 REGLES HOLONÒMIQUES
-        # =================================================
-
-        # 1. FRONT → moure cap a l'esquerra
-        if min_f < self.base_distance:
+        #----------------------------------------------------------
+        # RULE 1: FRONT obstacle → turn left
+        #----------------------------------------------------------
+        if min_front < self.base_distance:
             twist.linear.x = 0.0
-            twist.linear.y = self.v_lin         # esquerra
-            twist.angular.z = 0.0
-            action = f"FRONT {min_f:.2f} m → move LEFT (vy>0)"
+            twist.linear.y = 0.0
+            twist.angular.z = self.v_ang * 2.0
+            action = f"FRONT {min_front:.2f} m → turn LEFT"
 
-        # 2. FRONT-RIGHT → cap al front-esquerra
-        elif min_fr < self.base_distance:
-            twist.linear.x = self.v_lin * 0.6   # endavant
-            twist.linear.y = self.v_lin * 0.6   # esquerra
-            twist.angular.z = 0.0
-            action = f"FRONT-RIGHT {min_fr:.2f} m → move FRONT-LEFT"
+        #----------------------------------------------------------
+        # RULE 2: FRONT-RIGHT obstacle → slow + left
+        #----------------------------------------------------------
+        elif min_fr_right < self.base_distance:
+            twist.linear.x = 0.0
+            twist.linear.y = 0.0
+            twist.angular.z = self.v_ang * 2.0
+            action = f"FRONT-RIGHT {min_fr_right:.2f} m → turn LEFT"
 
-        # 3. RIGHT → avança mantenint distància
-        elif math.isfinite(min_r):
-            # control de la distància al mur
-            error = min_r - self.base_distance
+        #----------------------------------------------------------
+        # RULE 3: RIGHT visible → control with tolerance band (no vy)
+        #----------------------------------------------------------
+        elif math.isfinite(min_right):
+            # error > 0 → too far; error < 0 → too close
+            error = min_right - self.base_distance
 
-            twist.linear.x = self.v_lin         # endavant
-            twist.linear.y = -error * 0.5        # ajust lateral proporcional
-            twist.angular.z = 0.0
+            if abs(error) <= self.tol:
+                # Inside band: go straight
+                twist.linear.x = self.v_lin
+                twist.linear.y = 0.0
+                twist.angular.z = 0.0
+                action = (
+                    f"RIGHT ~OK ({min_right:.2f} m, target "
+                    f"{self.base_distance:.2f}±{self.tol:.2f}) → STRAIGHT"
+                )
 
+            elif error < 0:
+                # Too close to right wall → slow forward + stronger left turn
+                twist.linear.x = self.v_lin * 0.5
+                twist.linear.y = 0.0
+                twist.angular.z = self.v_ang * 2.0
+                action = (
+                    f"RIGHT too CLOSE ({min_right:.2f} m < "
+                    f"{self.base_distance:.2f}-{self.tol:.2f}) → "
+                    f"forward + strong LEFT turn"
+                )
+
+            else:
+                # Too far from right wall → slow forward + stronger right turn
+                twist.linear.x = self.v_lin * 0.5
+                twist.linear.y = 0.0
+                twist.angular.z = -self.v_ang * 2.0
+                action = (
+                    f"RIGHT too FAR ({min_right:.2f} m > "
+                    f"{self.base_distance:.2f}+{self.tol:.2f}) → "
+                    f"forward + strong RIGHT turn"
+                )
+
+        #----------------------------------------------------------
+        # RULE 4: BACK-RIGHT → only if it is the most relevant wall
+        #----------------------------------------------------------
+        elif math.isfinite(min_back_right) and (
+            not math.isfinite(min_right) or min_back_right <= min_right
+        ):
+            twist.linear.x = self.v_lin * 0.1
+            twist.linear.y = 0.0
+            twist.angular.z = -2.0 * self.v_ang
             action = (
-                f"RIGHT {min_r:.2f} m → FORWARD + adjust "
-                f"vy={twist.linear.y:.2f}"
+                f"BACK-RIGHT {min_back_right:.2f} m → "
+                f"very slow + STRONG RIGHT turn (2*w)"
             )
 
-        # 4. BACK-RIGHT → cap al front-dreta
-        elif math.isfinite(min_br):
-            twist.linear.x = self.v_lin * 0.6    # endavant
-            twist.linear.y = -self.v_lin * 0.6   # dreta
-            twist.angular.z = 0.0
-            action = f"BACK-RIGHT {min_br:.2f} m → move FRONT-RIGHT"
+        # if nothing is visible, twist remains zero -> robot stops
 
-        # 5. BACK → cap a la dreta
-        elif math.isfinite(min_back):
-            twist.linear.x = 0.0
-            twist.linear.y = -self.v_lin         # dreta
-            twist.angular.z = 0.0
-            action = f"BACK {min_back:.2f} m → move RIGHT"
-
-        else:
-            twist = Twist()
-            action = "No wall detected → STOP"
-
-
-        # Guarda i publica
+        # Update last commanded twist (periodic timer will publish it)
         self.cmd = twist
 
+        # Logging (only on change)
         if action != self._last_action_logged:
-            self.get_logger().info(action)
+            self.get_logger().info(action if action else "No action (stopped).")
             self._last_action_logged = action
 
-        self._state_action = action
-   
+        self._state_action = action if action else "Stopped (no wall detected)"
 
     #--------------------------------------------------------------------
     def log_info(self):

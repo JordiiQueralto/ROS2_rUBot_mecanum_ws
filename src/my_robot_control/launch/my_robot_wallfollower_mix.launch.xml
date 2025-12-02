@@ -14,7 +14,7 @@
          ======================== -->
     <node
         pkg="my_robot_control"
-        exec="my_robot_wallfollower_V1_exec"
+        exec="my_robot_wallfollower_mix_exec"
         name="wall_follower_node"
         output="screen">
 
