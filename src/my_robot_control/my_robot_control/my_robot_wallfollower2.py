@@ -147,7 +147,7 @@ class WallFollower(Node):
         #----------------------------------------------------------
         elif min_fr_right < self.base_distance:
             twist.linear.x = 0.0
-            twist.linear.y = 0.0
+            twist.linear.y = self.v_lin * 0.4
             twist.angular.z = self.v_ang * 2.0
             action = f"FRONT-RIGHT {min_fr_right:.2f} m → turn LEFT"
 
@@ -169,11 +169,10 @@ class WallFollower(Node):
                 )
 
             elif error < 0:
-                twist.linear.y = self.v_lin * 0.2
                 # Too close to right wall → slow forward + stronger left turn
                 twist.linear.x = self.v_lin * 0.5
                 twist.linear.y = self.v_lin * 0.6
-                twist.angular.z = self.v_ang * 1.5
+                twist.angular.z = self.v_ang * 1.0
                 action = (
                     f"RIGHT too CLOSE ({min_right:.2f} m < "
                     f"{self.base_distance:.2f}-{self.tol:.2f}) → "
@@ -184,7 +183,7 @@ class WallFollower(Node):
                 # Too far from right wall → slow forward + stronger right turn
                 twist.linear.x = self.v_lin * 0.5
                 twist.linear.y = -self.v_lin * 0.6
-                twist.angular.z = -self.v_ang * 1.5
+                twist.angular.z = -self.v_ang * 1.0
                 action = (
                     f"RIGHT too FAR ({min_right:.2f} m > "
                     f"{self.base_distance:.2f}+{self.tol:.2f}) → "
@@ -197,9 +196,9 @@ class WallFollower(Node):
         elif math.isfinite(min_back_right) and (
             not math.isfinite(min_right) or min_back_right <= min_right
         ):
-            twist.linear.x = self.v_lin * 0.1
-            twist.linear.y = 0.0
-            twist.angular.z = -2.0 * self.v_ang
+            twist.linear.x = self.v_lin * 0.02
+            twist.linear.y = -self.v_lin * 0.6
+            twist.angular.z = -2.5 * self.v_ang
             action = (
                 f"BACK-RIGHT {min_back_right:.2f} m → "
                 f"very slow + STRONG RIGHT turn (2*w)"
